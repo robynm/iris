@@ -8,6 +8,7 @@ type Status = 'idle' | 'resizing' | 'loading' | 'success' | 'error';
 // good on phone screens, low enough to keep token costs predictable.
 const MAX_EDGE = 1536;
 const JPEG_QUALITY = 0.85;
+const PROMPT = 'Turn this image into a professional looking product flatlay image. Show the entire piece of clothing, the colors and fabric texture, but put it on a white background and clean up the alignment and wrinkles. Don\'t add anything new to the image.';
 
 type UsageInfo = { enabled: boolean; total?: number; today?: number };
 
@@ -16,7 +17,7 @@ export default function Home() {
   const [sourceDims, setSourceDims] = useState<{ w: number; h: number } | null>(
     null
   );
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(PROMPT);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState('');
@@ -134,7 +135,7 @@ export default function Home() {
     setSourceImage(null);
     setSourceDims(null);
     setResultImage(null);
-    setPrompt('');
+    setPrompt(PROMPT);
     setStatus('idle');
     setErrorMsg('');
     if (fileInputRef.current) fileInputRef.current.value = '';
