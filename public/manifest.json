@@ -1,7 +1,7 @@
 {
-  "name": "Nano Banana",
-  "short_name": "Nano Banana",
-  "description": "Edit images with Gemini",
+  "name": "Iris",
+  "short_name": "Iris",
+  "description": "Edit images and create productized versions",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",

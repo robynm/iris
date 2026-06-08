@@ -2,13 +2,13 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Nano Banana',
-  description: 'Edit images with Gemini 3.1 Flash Image',
+  title: 'Iris',
+  description: 'Edit images',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Nano Banana',
+    title: 'Iris',
   },
 };
 

@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, type ChangeEvent } from 'react';
 
-type Status = 'idle' | 'resizing' | 'loading' | 'success' | 'error';
+type Status = 'idle' | 'resizing' | 'loading' | 'removing' | 'success' | 'error';
+type Mode = 'edit' | 'flatlay';
 
 // Max edge length for uploads. 1536px is a sweet spot: high enough to look
 // good on phone screens, low enough to keep token costs predictable.
@@ -13,12 +14,15 @@ const PROMPT = 'Turn this image into a professional looking product flatlay imag
 type UsageInfo = { enabled: boolean; total?: number; today?: number };
 
 export default function Home() {
+  const [mode, setMode] = useState<Mode | null>(null);
   const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [sourceDims, setSourceDims] = useState<{ w: number; h: number } | null>(
     null
   );
   const [prompt, setPrompt] = useState(PROMPT);
   const [resultImage, setResultImage] = useState<string | null>(null);
+  // Transparent-background PNG produced by the flatlay pathway.
+  const [transparentImage, setTransparentImage] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [usage, setUsage] = useState<UsageInfo | null>(null);
@@ -87,6 +91,7 @@ export default function Home() {
       setSourceImage(dataUrl);
       setSourceDims({ w, h });
       setResultImage(null);
+      setTransparentImage(null);
       setStatus('idle');
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to read image');
@@ -99,6 +104,7 @@ export default function Home() {
     setStatus('loading');
     setErrorMsg('');
     setResultImage(null);
+    setTransparentImage(null);
 
     try {
       const base64 = sourceImage.split(',')[1];
@@ -117,12 +123,26 @@ export default function Home() {
       if (!res.ok) {
         throw new Error(data.error || 'Generation failed');
       }
-      setResultImage(`data:image/png;base64,${data.image}`);
-      setStatus('success');
+
+      const generated = `data:image/png;base64,${data.image}`;
 
       // Update usage from the response if KV is enabled
       if (data.usage) {
         setUsage({ enabled: true, ...data.usage });
+      }
+
+      if (mode === 'flatlay') {
+        // Flatlay pathway: strip the background to a transparent PNG.
+        setResultImage(generated);
+        setStatus('removing');
+        const { removeBackground } = await import('@imgly/background-removal');
+        const blob = await removeBackground(generated);
+        const url = URL.createObjectURL(blob);
+        setTransparentImage(url);
+        setStatus('success');
+      } else {
+        setResultImage(generated);
+        setStatus('success');
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong';
@@ -135,25 +155,108 @@ export default function Home() {
     setSourceImage(null);
     setSourceDims(null);
     setResultImage(null);
+    setTransparentImage(null);
     setPrompt(PROMPT);
     setStatus('idle');
     setErrorMsg('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleBackToModes = () => {
+    handleReset();
+    setMode(null);
+  };
+
   const downloadResult = () => {
-    if (!resultImage) return;
+    // Flatlay pathway downloads the transparent PNG; edit mode downloads the result.
+    const href = mode === 'flatlay' ? transparentImage : resultImage;
+    if (!href) return;
     const link = document.createElement('a');
-    link.href = resultImage;
-    link.download = `edited-${Date.now()}.png`;
+    link.href = href;
+    link.download =
+      mode === 'flatlay'
+        ? `flatlay-transparent-${Date.now()}.png`
+        : `edited-${Date.now()}.png`;
     link.click();
   };
+
+  // ---- Mode picker (home) ----------------------------------------------
+  if (mode === null) {
+    return (
+      <main style={styles.main}>
+        <header style={styles.header}>
+          <h1 style={styles.title}>🌈 Iris</h1>
+          <p style={styles.subtitle}>Edit images and create clean product flatlays</p>
+          {usage?.enabled && (
+            <div style={styles.usageBar}>
+              <span>
+                <strong style={styles.usageNum}>{usage.today}</strong> today
+              </span>
+              <span style={styles.usageDivider}>·</span>
+              <span>
+                <strong style={styles.usageNum}>{usage.total}</strong> total
+              </span>
+            </div>
+          )}
+        </header>
+
+        <section style={styles.section}>
+          <div style={styles.modeLabel}>Choose a pathway</div>
+
+          <button
+            type="button"
+            onClick={() => setMode('edit')}
+            style={styles.modeCard}
+          >
+            <span style={styles.modeIcon}>✏️</span>
+            <span style={styles.modeText}>
+              <span style={styles.modeName}>Edit an image</span>
+              <span style={styles.modeDesc}>
+                Describe any change and let Gemini apply it.
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMode('flatlay')}
+            style={styles.modeCard}
+          >
+            <span style={styles.modeIcon}>🧺</span>
+            <span style={styles.modeText}>
+              <span style={styles.modeName}>Flatlay → transparent PNG</span>
+              <span style={styles.modeDesc}>
+                Generate a clean product flatlay, then remove the background.
+              </span>
+            </span>
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  const isFlatlay = mode === 'flatlay';
+  const busy = status === 'loading' || status === 'removing';
+  const displayImage = isFlatlay ? transparentImage : resultImage;
 
   return (
     <main style={styles.main}>
       <header style={styles.header}>
-        <h1 style={styles.title}>🍌 Nano Banana</h1>
-        <p style={styles.subtitle}>Edit images with Gemini</p>
+        <button
+          type="button"
+          onClick={handleBackToModes}
+          style={styles.backButton}
+        >
+          ← Pathways
+        </button>
+        <h1 style={styles.title}>
+          {isFlatlay ? '🧺 Flatlay → PNG' : '✏️ Edit'}
+        </h1>
+        <p style={styles.subtitle}>
+          {isFlatlay
+            ? 'Product flatlay with transparent background'
+            : 'Edit images with Gemini'}
+        </p>
         {usage?.enabled && (
           <div style={styles.usageBar}>
             <span>
@@ -205,43 +308,66 @@ export default function Home() {
 
       {sourceImage && (
         <section style={styles.section}>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe the edit... e.g. 'make it look like a watercolor painting'"
-            style={styles.textarea}
-            rows={3}
-            disabled={status === 'loading'}
-          />
+          {isFlatlay ? (
+            <div style={styles.promptBox}>
+              <div style={styles.promptLabel}>Default flatlay prompt</div>
+              <p style={styles.promptText}>{prompt}</p>
+              <p style={styles.promptHint}>
+                The background is removed automatically after generation.
+              </p>
+            </div>
+          ) : (
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe the edit... e.g. 'make it look like a watercolor painting'"
+              style={styles.textarea}
+              rows={3}
+              disabled={busy}
+            />
+          )}
 
           <button
             type="button"
             onClick={handleGenerate}
-            disabled={!prompt.trim() || status === 'loading'}
+            disabled={!prompt.trim() || busy}
             style={{
               ...styles.generateButton,
-              opacity: !prompt.trim() || status === 'loading' ? 0.5 : 1,
+              opacity: !prompt.trim() || busy ? 0.5 : 1,
             }}
           >
-            {status === 'loading' ? 'Generating…' : 'Generate'}
+            {status === 'loading'
+              ? 'Generating…'
+              : status === 'removing'
+                ? 'Removing background…'
+                : isFlatlay
+                  ? 'Generate flatlay PNG'
+                  : 'Generate'}
           </button>
         </section>
       )}
 
       {status === 'error' && <div style={styles.error}>{errorMsg}</div>}
 
-      {resultImage && (
+      {displayImage && (
         <section style={styles.section}>
-          <div style={styles.resultLabel}>Result</div>
-          <div style={styles.imageWrapper}>
-            <img src={resultImage} alt="Result" style={styles.image} />
+          <div style={styles.resultLabel}>
+            {isFlatlay ? 'Transparent PNG' : 'Result'}
+          </div>
+          <div
+            style={{
+              ...styles.imageWrapper,
+              ...(isFlatlay ? styles.checkerboard : {}),
+            }}
+          >
+            <img src={displayImage} alt="Result" style={styles.image} />
           </div>
           <button
             type="button"
             onClick={downloadResult}
             style={styles.downloadButton}
           >
-            ⬇ Download
+            ⬇ Download PNG
           </button>
         </section>
       )}
@@ -261,6 +387,19 @@ const styles: Record<string, React.CSSProperties> = {
   header: {
     textAlign: 'center',
     paddingTop: 8,
+    position: 'relative',
+  },
+  backButton: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    background: '#161616',
+    color: '#ccc',
+    border: '1px solid #2a2a2a',
+    padding: '6px 12px',
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 500,
   },
   title: {
     fontSize: 28,
@@ -294,6 +433,29 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: 12,
   },
+  modeLabel: {
+    fontSize: 13,
+    color: '#888',
+    fontWeight: 500,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    textAlign: 'center',
+  },
+  modeCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    padding: '18px 16px',
+    background: '#161616',
+    border: '1px solid #2a2a2a',
+    borderRadius: 16,
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  modeIcon: { fontSize: 28, lineHeight: 1 },
+  modeText: { display: 'flex', flexDirection: 'column', gap: 4 },
+  modeName: { fontSize: 16, fontWeight: 600, color: '#f5f5f5' },
+  modeDesc: { fontSize: 13, color: '#888', lineHeight: 1.4 },
   uploadBox: {
     display: 'flex',
     flexDirection: 'column',
@@ -322,6 +484,13 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#161616',
     borderRadius: 16,
     overflow: 'hidden',
+  },
+  checkerboard: {
+    backgroundColor: '#fff',
+    backgroundImage:
+      'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)',
+    backgroundSize: '20px 20px',
+    backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
   },
   image: {
     width: '100%',
@@ -353,6 +522,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     fontVariantNumeric: 'tabular-nums',
   },
+  promptBox: {
+    padding: 14,
+    background: '#161616',
+    border: '1px solid #2a2a2a',
+    borderRadius: 12,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  promptLabel: {
+    fontSize: 12,
+    color: '#888',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  promptText: { fontSize: 14, color: '#ddd', lineHeight: 1.5 },
+  promptHint: { fontSize: 12, color: '#666', fontStyle: 'italic' },
   textarea: {
     width: '100%',
     padding: 14,

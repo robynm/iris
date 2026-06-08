@@ -37,8 +37,8 @@ export default function LoginPage() {
   return (
     <main style={styles.main}>
       <div style={styles.card}>
-        <div style={styles.icon}>🍌</div>
-        <h1 style={styles.title}>Nano Banana</h1>
+        <div style={styles.icon}>🌈</div>
+        <h1 style={styles.title}>Iris</h1>
         <p style={styles.subtitle}>Enter password to continue</p>
 
         <form onSubmit={handleSubmit} style={styles.form}>

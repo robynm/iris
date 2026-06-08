@@ -1,4 +1,4 @@
-# Nano Banana 🍌
+# IRIS
 
 A mobile-friendly image-editing app powered by Google Gemini 3.1 Flash Image (Nano Banana 2). Upload an image, describe an edit, get a result.
 
