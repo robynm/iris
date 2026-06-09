@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // @imgly/background-removal-node pulls in onnxruntime-node, a native module
-  // that must not be bundled by Next — keep it external to the server build.
-  serverExternalPackages: ['@imgly/background-removal-node', 'onnxruntime-node'],
   experimental: {
     serverActions: {
       bodySizeLimit: '10mb',
