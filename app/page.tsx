@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, type ChangeEvent } from 'react';
 
 type Status = 'idle' | 'resizing' | 'loading' | 'removing' | 'success' | 'error';
-type Mode = 'edit' | 'flatlay';
+type Mode = 'edit' | 'flatlay' | 'removebg';
 
 // Max edge length for uploads. 1536px is a sweet spot: high enough to look
 // good on phone screens, low enough to keep token costs predictable.
@@ -151,6 +151,28 @@ export default function Home() {
     }
   };
 
+  // Remove-background pathway: strip the background straight from the upload,
+  // no AI generation step.
+  const handleRemoveBackground = async () => {
+    if (!sourceImage) return;
+    setStatus('removing');
+    setErrorMsg('');
+    setResultImage(null);
+    setTransparentImage(null);
+
+    try {
+      const { removeBackground } = await import('@imgly/background-removal');
+      const blob = await removeBackground(sourceImage);
+      const url = URL.createObjectURL(blob);
+      setTransparentImage(url);
+      setStatus('success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Something went wrong';
+      setErrorMsg(msg);
+      setStatus('error');
+    }
+  };
+
   const handleReset = () => {
     setSourceImage(null);
     setSourceDims(null);
@@ -168,15 +190,19 @@ export default function Home() {
   };
 
   const downloadResult = () => {
-    // Flatlay pathway downloads the transparent PNG; edit mode downloads the result.
-    const href = mode === 'flatlay' ? transparentImage : resultImage;
+    // Transparent pathways (flatlay, remove-bg) download the PNG; edit mode
+    // downloads the generated result.
+    const usesTransparent = mode === 'flatlay' || mode === 'removebg';
+    const href = usesTransparent ? transparentImage : resultImage;
     if (!href) return;
     const link = document.createElement('a');
     link.href = href;
     link.download =
       mode === 'flatlay'
         ? `flatlay-transparent-${Date.now()}.png`
-        : `edited-${Date.now()}.png`;
+        : mode === 'removebg'
+          ? `transparent-${Date.now()}.png`
+          : `edited-${Date.now()}.png`;
     link.click();
   };
 
@@ -230,14 +256,30 @@ export default function Home() {
               </span>
             </span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setMode('removebg')}
+            style={styles.modeCard}
+          >
+            <span style={styles.modeIcon}>✂️</span>
+            <span style={styles.modeText}>
+              <span style={styles.modeName}>Remove background</span>
+              <span style={styles.modeDesc}>
+                Strip the background to a transparent PNG. No AI, just your photo.
+              </span>
+            </span>
+          </button>
         </section>
       </main>
     );
   }
 
   const isFlatlay = mode === 'flatlay';
+  const isRemoveBg = mode === 'removebg';
+  const showTransparent = isFlatlay || isRemoveBg;
   const busy = status === 'loading' || status === 'removing';
-  const displayImage = isFlatlay ? transparentImage : resultImage;
+  const displayImage = showTransparent ? transparentImage : resultImage;
 
   return (
     <main style={styles.main}>
@@ -250,12 +292,18 @@ export default function Home() {
           ← Pathways
         </button>
         <h1 style={styles.title}>
-          {isFlatlay ? '🧺 Flatlay → PNG' : '✏️ Edit'}
+          {isFlatlay
+            ? '🧺 Flatlay → PNG'
+            : isRemoveBg
+              ? '✂️ Remove background'
+              : '✏️ Edit'}
         </h1>
         <p style={styles.subtitle}>
           {isFlatlay
             ? 'Product flatlay with transparent background'
-            : 'Edit images with Gemini'}
+            : isRemoveBg
+              ? 'Transparent PNG, no AI'
+              : 'Edit images with Gemini'}
         </p>
         {usage?.enabled && (
           <div style={styles.usageBar}>
@@ -308,7 +356,15 @@ export default function Home() {
 
       {sourceImage && (
         <section style={styles.section}>
-          {isFlatlay ? (
+          {isRemoveBg ? (
+            <div style={styles.promptBox}>
+              <div style={styles.promptLabel}>Remove background</div>
+              <p style={styles.promptText}>
+                The background is stripped from your photo to a transparent PNG —
+                no AI generation, the image isn&apos;t changed.
+              </p>
+            </div>
+          ) : isFlatlay ? (
             <div style={styles.promptBox}>
               <div style={styles.promptLabel}>Default flatlay prompt</div>
               <p style={styles.promptText}>{prompt}</p>
@@ -329,11 +385,11 @@ export default function Home() {
 
           <button
             type="button"
-            onClick={handleGenerate}
-            disabled={!prompt.trim() || busy}
+            onClick={isRemoveBg ? handleRemoveBackground : handleGenerate}
+            disabled={busy || (!isRemoveBg && !prompt.trim())}
             style={{
               ...styles.generateButton,
-              opacity: !prompt.trim() || busy ? 0.5 : 1,
+              opacity: busy || (!isRemoveBg && !prompt.trim()) ? 0.5 : 1,
             }}
           >
             {status === 'loading'
@@ -342,7 +398,9 @@ export default function Home() {
                 ? 'Removing background…'
                 : isFlatlay
                   ? 'Generate flatlay PNG'
-                  : 'Generate'}
+                  : isRemoveBg
+                    ? 'Remove background'
+                    : 'Generate'}
           </button>
         </section>
       )}
@@ -352,12 +410,12 @@ export default function Home() {
       {displayImage && (
         <section style={styles.section}>
           <div style={styles.resultLabel}>
-            {isFlatlay ? 'Transparent PNG' : 'Result'}
+            {showTransparent ? 'Transparent PNG' : 'Result'}
           </div>
           <div
             style={{
               ...styles.imageWrapper,
-              ...(isFlatlay ? styles.checkerboard : {}),
+              ...(showTransparent ? styles.checkerboard : {}),
             }}
           >
             <img src={displayImage} alt="Result" style={styles.image} />
