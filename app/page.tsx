@@ -36,6 +36,23 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
+  // Run background removal on the server (/api/remove-bg) and return the
+  // resulting transparent PNG as a Blob the caller can turn into an object URL.
+  const stripBackground = async (image: string): Promise<Blob> => {
+    const base64 = image.includes(',') ? image.split(',')[1] : image;
+    const res = await fetch('/api/remove-bg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64 }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Background removal failed');
+    }
+    const bytes = Uint8Array.from(atob(data.image), (c) => c.charCodeAt(0));
+    return new Blob([bytes], { type: 'image/png' });
+  };
+
   // Resize an image File to a JPEG data URL with max edge length MAX_EDGE.
   const resizeImage = (file: File): Promise<{ dataUrl: string; w: number; h: number }> =>
     new Promise((resolve, reject) => {
@@ -135,8 +152,7 @@ export default function Home() {
         // Flatlay pathway: strip the background to a transparent PNG.
         setResultImage(generated);
         setStatus('removing');
-        const { removeBackground } = await import('@imgly/background-removal');
-        const blob = await removeBackground(generated);
+        const blob = await stripBackground(generated);
         const url = URL.createObjectURL(blob);
         setTransparentImage(url);
         setStatus('success');
@@ -161,8 +177,7 @@ export default function Home() {
     setTransparentImage(null);
 
     try {
-      const { removeBackground } = await import('@imgly/background-removal');
-      const blob = await removeBackground(sourceImage);
+      const blob = await stripBackground(sourceImage);
       const url = URL.createObjectURL(blob);
       setTransparentImage(url);
       setStatus('success');
