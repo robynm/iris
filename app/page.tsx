@@ -5,10 +5,11 @@ import { useState, useRef, useEffect, type ChangeEvent } from 'react';
 type Status = 'idle' | 'resizing' | 'loading' | 'removing' | 'success' | 'error';
 type Mode = 'edit' | 'flatlay' | 'removebg';
 
-// Max edge length for uploads. 1536px is a sweet spot: high enough to look
-// good on phone screens, low enough to keep token costs predictable.
-const MAX_EDGE = 1536;
-const JPEG_QUALITY = 0.85;
+// Max edge length for uploads. 1280px keeps the base64 payload well under
+// Vercel's 4.5MB request-body limit for the /api/remove-bg function while
+// still looking good on phone screens and keeping token costs predictable.
+const MAX_EDGE = 1280;
+const JPEG_QUALITY = 0.8;
 const PROMPT = 'Turn this image into a professional looking product flatlay image. Show the entire piece of clothing, the colors and fabric texture, but put it on a white background and clean up the alignment and wrinkles. Don\'t add anything new to the image.';
 
 // Background removal runs an ML model in the browser. The fp16 model is roughly
@@ -126,6 +127,37 @@ export default function Home() {
       img.src = objectUrl;
     });
 
+  // Downscale an already-loaded data URL to a JPEG with max edge MAX_EDGE.
+  // Used to shrink the Gemini-generated PNG before it's sent to /api/remove-bg,
+  // so the base64 payload stays under Vercel's 4.5MB request-body limit. The
+  // flatlay is on a white background and gets stripped server-side anyway, so
+  // re-encoding as JPEG here costs nothing.
+  const resizeDataUrl = (dataUrl: string): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        const longestEdge = Math.max(width, height);
+        if (longestEdge > MAX_EDGE) {
+          const scale = MAX_EDGE / longestEdge;
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas not supported'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', JPEG_QUALITY));
+      };
+      img.onerror = () => reject(new Error('Could not read generated image'));
+      img.src = dataUrl;
+    });
+
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -187,7 +219,9 @@ export default function Home() {
         // Flatlay pathway: strip the background to a transparent PNG.
         setResultImage(generated);
         setStatus('removing');
-        const blob = await stripBackground(generated);
+        // Downscale first so the payload stays under Vercel's body limit.
+        const downscaled = await resizeDataUrl(generated);
+        const blob = await stripBackground(downscaled);
         const url = URL.createObjectURL(blob);
         setTransparentImage(url);
         setStatus('success');
