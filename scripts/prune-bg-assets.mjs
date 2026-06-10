@@ -98,6 +98,40 @@ for (const plat of readdirSync(ortBin)) {
   }
 }
 console.log(`[prune] kept onnxruntime-node for ${keepPlat}/${keepArch} only`);
+
+// 3. Strip GPU execution-provider libs from the kept platform. The Linux build
+// bundles huge libonnxruntime_providers_cuda/tensorrt (~hundreds of MB) that a
+// CPU-only Lambda never loads. Keep the core runtime + the small '_shared'
+// provider interface; drop the rest.
+const keptDir = join(ortBin, keepPlat, keepArch);
+let strippedMB = 0;
+if (existsSync(keptDir)) {
+  for (const f of readdirSync(keptDir)) {
+    if (/libonnxruntime_providers_/.test(f) && !/providers_shared/.test(f)) {
+      const p = join(keptDir, f);
+      try {
+        strippedMB += statSync(p).size / 1048576;
+      } catch {}
+      drop(p);
+    }
+  }
+}
+console.log(`[prune] stripped GPU provider libs (~${strippedMB.toFixed(1)}MB)`);
+
+// Log what's left in the kept ONNX dir so the build log shows any remaining
+// large files (in case some other bundled lib, not a *_providers_* one, is big).
+if (existsSync(keptDir)) {
+  const remaining = readdirSync(keptDir)
+    .map((f) => {
+      let mb = 0;
+      try {
+        mb = statSync(join(keptDir, f)).size / 1048576;
+      } catch {}
+      return `${f} ${mb.toFixed(1)}MB`;
+    })
+    .sort();
+  console.log(`[prune] onnx ${keepPlat}/${keepArch} now: ${remaining.join(', ')}`);
+}
 console.log(
   `[prune] done — dist ${dirSizeMB(imglyDist)}MB, onnx ${dirSizeMB(ortBin)}MB`
 );
