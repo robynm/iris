@@ -12,18 +12,6 @@ const MAX_EDGE = 1280;
 const JPEG_QUALITY = 0.8;
 const PROMPT = 'Turn this image into a professional looking product flatlay image. Show the entire piece of clothing, the colors and fabric texture, but put it on a white background and clean up the alignment and wrinkles. Don\'t add anything new to the image.';
 
-// Background removal runs an ML model in the browser. The fp16 model is roughly
-// half the size and noticeably faster than the default full-precision model with
-// negligible quality loss, and WebGPU is dramatically faster than CPU when the
-// browser supports it.
-const hasWebGPU = () =>
-  typeof navigator !== 'undefined' && 'gpu' in navigator;
-const bgRemovalConfig = () => ({
-  model: 'isnet_fp16' as const,
-  device: (hasWebGPU() ? 'gpu' : 'cpu') as 'gpu' | 'cpu',
-  output: { format: 'image/png' as const },
-});
-
 type UsageInfo = { enabled: boolean; total?: number; today?: number };
 
 export default function Home() {
@@ -37,7 +25,6 @@ export default function Home() {
   // Transparent-background PNG produced by the flatlay pathway.
   const [transparentImage, setTransparentImage] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('idle');
-  const [progressMsg, setProgressMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,43 +37,21 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  // Warm up the background-removal model as soon as the user enters a pathway
-  // that needs it, so the (one-time) model download overlaps with picking an
-  // image instead of stalling the first click.
-  useEffect(() => {
-    if (mode === 'flatlay' || mode === 'removebg') {
-      import('@imgly/background-removal')
-        .then(({ preload }) => preload(bgRemovalConfig()))
-        .catch(() => {});
-    }
-  }, [mode]);
-
-  // Run background removal in the browser with the tuned config and surface
-  // progress so the (potentially slow) step doesn't look frozen.
+  // Run background removal on the server (/api/remove-bg) and return the
+  // resulting transparent PNG as a Blob the caller can turn into an object URL.
   const stripBackground = async (image: string): Promise<Blob> => {
-    const { removeBackground } = await import('@imgly/background-removal');
-    const config = {
-      ...bgRemovalConfig(),
-      progress: (key: string, current: number, total: number) => {
-        const pct = total ? Math.round((current / total) * 100) : 0;
-        setProgressMsg(
-          key.startsWith('fetch')
-            ? `Downloading model… ${pct}%`
-            : `Removing background… ${pct}%`
-        );
-      },
-    };
-    try {
-      return await removeBackground(image, config);
-    } catch (err) {
-      // WebGPU can fail on some drivers/browsers — retry once on CPU.
-      if (config.device === 'gpu') {
-        return await removeBackground(image, { ...config, device: 'cpu' });
-      }
-      throw err;
-    } finally {
-      setProgressMsg('');
+    const base64 = image.includes(',') ? image.split(',')[1] : image;
+    const res = await fetch('/api/remove-bg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64 }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Background removal failed');
     }
+    const bytes = Uint8Array.from(atob(data.image), (c) => c.charCodeAt(0));
+    return new Blob([bytes], { type: 'image/png' });
   };
 
   // Resize an image File to a JPEG data URL with max edge length MAX_EDGE.
@@ -264,7 +229,6 @@ export default function Home() {
     setTransparentImage(null);
     setPrompt(PROMPT);
     setStatus('idle');
-    setProgressMsg('');
     setErrorMsg('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -480,7 +444,7 @@ export default function Home() {
             {status === 'loading'
               ? 'Generating…'
               : status === 'removing'
-                ? progressMsg || 'Removing background…'
+                ? 'Removing background…'
                 : isFlatlay
                   ? 'Generate flatlay PNG'
                   : isRemoveBg

@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.6.0",
-    "@imgly/background-removal": "^1.7.0",
+    "@imgly/background-removal-node": "^1.4.5",
     "@vercel/kv": "^3.0.0",
     "next": "16.2.6",
     "react": "19.2.6",
