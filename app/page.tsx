@@ -22,7 +22,7 @@ export default function Home() {
   );
   const [prompt, setPrompt] = useState(PROMPT);
   const [resultImage, setResultImage] = useState<string | null>(null);
-  // Transparent-background PNG produced by the flatlay pathway.
+  // Transparent-background PNG produced by the remove-background pathway.
   const [transparentImage, setTransparentImage] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState('');
@@ -92,37 +92,6 @@ export default function Home() {
       img.src = objectUrl;
     });
 
-  // Downscale an already-loaded data URL to a JPEG with max edge MAX_EDGE.
-  // Used to shrink the Gemini-generated PNG before it's sent to /api/remove-bg,
-  // so the base64 payload stays under Vercel's 4.5MB request-body limit. The
-  // flatlay is on a white background and gets stripped server-side anyway, so
-  // re-encoding as JPEG here costs nothing.
-  const resizeDataUrl = (dataUrl: string): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        const longestEdge = Math.max(width, height);
-        if (longestEdge > MAX_EDGE) {
-          const scale = MAX_EDGE / longestEdge;
-          width = Math.round(width * scale);
-          height = Math.round(height * scale);
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Canvas not supported'));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', JPEG_QUALITY));
-      };
-      img.onerror = () => reject(new Error('Could not read generated image'));
-      img.src = dataUrl;
-    });
-
   const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -180,20 +149,8 @@ export default function Home() {
         setUsage({ enabled: true, ...data.usage });
       }
 
-      if (mode === 'flatlay') {
-        // Flatlay pathway: strip the background to a transparent PNG.
-        setResultImage(generated);
-        setStatus('removing');
-        // Downscale first so the payload stays under Vercel's body limit.
-        const downscaled = await resizeDataUrl(generated);
-        const blob = await stripBackground(downscaled);
-        const url = URL.createObjectURL(blob);
-        setTransparentImage(url);
-        setStatus('success');
-      } else {
-        setResultImage(generated);
-        setStatus('success');
-      }
+      setResultImage(generated);
+      setStatus('success');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong';
       setErrorMsg(msg);
@@ -239,16 +196,15 @@ export default function Home() {
   };
 
   const downloadResult = () => {
-    // Transparent pathways (flatlay, remove-bg) download the PNG; edit mode
-    // downloads the generated result.
-    const usesTransparent = mode === 'flatlay' || mode === 'removebg';
-    const href = usesTransparent ? transparentImage : resultImage;
+    // Remove-bg downloads the transparent PNG; flatlay and edit download the
+    // generated result.
+    const href = mode === 'removebg' ? transparentImage : resultImage;
     if (!href) return;
     const link = document.createElement('a');
     link.href = href;
     link.download =
       mode === 'flatlay'
-        ? `flatlay-transparent-${Date.now()}.png`
+        ? `flatlay-${Date.now()}.png`
         : mode === 'removebg'
           ? `transparent-${Date.now()}.png`
           : `edited-${Date.now()}.png`;
@@ -299,9 +255,9 @@ export default function Home() {
           >
             <span style={styles.modeIcon}>🧺</span>
             <span style={styles.modeText}>
-              <span style={styles.modeName}>Flatlay → transparent PNG</span>
+              <span style={styles.modeName}>Flatlay</span>
               <span style={styles.modeDesc}>
-                Generate a clean product flatlay, then remove the background.
+                Generate a clean product flatlay on a white background.
               </span>
             </span>
           </button>
@@ -326,7 +282,7 @@ export default function Home() {
 
   const isFlatlay = mode === 'flatlay';
   const isRemoveBg = mode === 'removebg';
-  const showTransparent = isFlatlay || isRemoveBg;
+  const showTransparent = isRemoveBg;
   const busy = status === 'loading' || status === 'removing';
   const displayImage = showTransparent ? transparentImage : resultImage;
 
@@ -342,14 +298,14 @@ export default function Home() {
         </button>
         <h1 style={styles.title}>
           {isFlatlay
-            ? '🧺 Flatlay → PNG'
+            ? '🧺 Flatlay'
             : isRemoveBg
               ? '✂️ Remove background'
               : '✏️ Edit'}
         </h1>
         <p style={styles.subtitle}>
           {isFlatlay
-            ? 'Product flatlay with transparent background'
+            ? 'Product flatlay on a white background'
             : isRemoveBg
               ? 'Transparent PNG, no AI'
               : 'Edit images with Gemini'}
@@ -417,9 +373,6 @@ export default function Home() {
             <div style={styles.promptBox}>
               <div style={styles.promptLabel}>Default flatlay prompt</div>
               <p style={styles.promptText}>{prompt}</p>
-              <p style={styles.promptHint}>
-                The background is removed automatically after generation.
-              </p>
             </div>
           ) : (
             <textarea
@@ -446,7 +399,7 @@ export default function Home() {
               : status === 'removing'
                 ? 'Removing background…'
                 : isFlatlay
-                  ? 'Generate flatlay PNG'
+                  ? 'Generate flatlay'
                   : isRemoveBg
                     ? 'Remove background'
                     : 'Generate'}
@@ -646,7 +599,6 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.05em',
   },
   promptText: { fontSize: 14, color: '#ddd', lineHeight: 1.5 },
-  promptHint: { fontSize: 12, color: '#666', fontStyle: 'italic' },
   textarea: {
     width: '100%',
     padding: 14,
